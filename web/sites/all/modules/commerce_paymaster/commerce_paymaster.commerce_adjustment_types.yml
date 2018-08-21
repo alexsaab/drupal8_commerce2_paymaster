@@ -1,0 +1,6 @@
+paymaster_fee:
+  label: 'Paymaster Fee'
+  singular_label: 'Paymaster Fee'
+  plural_label: 'Paymaster Fees'
+  has_ui: true
+  weight: 100

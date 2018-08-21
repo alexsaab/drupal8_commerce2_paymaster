@@ -1,0 +1,23 @@
+<?php
+/**
+ * @file
+ * Install, update and uninstall functions for the Paymaster module.
+ */
+
+/**
+ * Implements hook_requirements().
+ */
+function commerce_paymaster_requirements($phase) {
+  $requirements = [];
+
+  if ($phase == 'install') {
+    $dependency_installed = class_exists('PaymasterSdkPHP\Client');
+    $requirements['paymaster_status'] = [
+      'title' => t('Paymaster'),
+      'value' => t('Composer dependency alexsaab/paymaster-sdk-php is not installed.'),
+      'severity' => $dependency_installed ? REQUIREMENT_OK : REQUIREMENT_ERROR,
+    ];
+  }
+
+  return $requirements;
+}
