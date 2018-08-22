@@ -216,7 +216,6 @@ class Paymaster extends OffsitePaymentGatewayBase
         $sign = self::getSign($LMI_MERCHANT_ID, $LMI_PAYMENT_NO, $LMI_PAYMENT_AMOUNT, $LMI_CURRENCY,
             $SECRET, $hash_method);
 
-
         // check for right hash and sign
         if ($hash === $LMI_HASH && $sign === $LMI_SIGN) {
             $payment_storage = $this->entityTypeManager->getStorage('commerce_payment');
