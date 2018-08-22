@@ -36,7 +36,7 @@ class PaymasterForm extends BasePaymentOffsiteForm
         $data = [
             'LMI_MERCHANT_ID' => $configs['merchant_id'],
             'LMI_PAYMENT_AMOUNT' =>  $total_price ? $total_price->getNumber() : '0.00',
-            'LMI_PAYMENT_DESC' => 'Платеж по заказу №'.$payment->getOrderId(),
+            'LMI_PAYMENT_DESC' => $configs['description'].$payment->getOrderId(),
             'LMI_PAYMENT_NO' => $payment->getOrderId(),
             'LMI_CURRENCY'=>$total_price->getCurrencyCode(),
             'LMI_PAYMENT_NOTIFICATION_URL' => $this->getNotifyUrl(),
@@ -47,8 +47,6 @@ class PaymasterForm extends BasePaymentOffsiteForm
 
         return $this->buildRedirectForm($form, $form_state, $this->payment_url, $data, 'post');
     }
-
-
 
     /**
      * {@inheritdoc}

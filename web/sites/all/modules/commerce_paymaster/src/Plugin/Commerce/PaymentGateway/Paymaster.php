@@ -3,11 +3,11 @@
 namespace Drupal\commerce_paymaster\Plugin\Commerce\PaymentGateway;
 
 use Drupal\commerce_order\Entity\OrderInterface;
-use Drupal\commerce_payment\Exception\PaymentGatewayException;
 use Drupal\commerce_payment\Plugin\Commerce\PaymentGateway\OffsitePaymentGatewayBase;
 use Drupal\Core\Form\FormStateInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Drupal\commerce_order\Entity\Order;
+use Drupal\Core\Messenger\MessengerInterface;
 
 /**
  * Provides the Paymaster payment gateway.
@@ -33,13 +33,18 @@ class Paymaster extends OffsitePaymentGatewayBase
      */
     public function defaultConfiguration()
     {
-        return [
+
+        $returned = [
                 'merchant_id' => '',
                 'secret' => '',
-                'hash_method' => '',
-                'vat_product' => '',
                 'vat_shipping' => '',
             ] + parent::defaultConfiguration();
+
+        foreach ($this->getProductTypes() as $type) {
+            $returned['vat_product_'.$type] = '';
+        }
+
+        return $returned;
     }
 
     /**
@@ -88,22 +93,24 @@ class Paymaster extends OffsitePaymentGatewayBase
             '#required' => TRUE,
         ];
 
+        foreach ($this->getProductTypes() as $type) {
+            $form['vat_product_' . $type] = [
+                '#type' => 'select',
+                '#title' => $this->t("Vat rate for product type " . $type),
+                '#description' => $this->t("Set vat rate for product " . $type),
+                '#options' => array(
+                    'vat18' => $this->t('VAT 18%'),
+                    'vat10' => $this->t('VAT 10%'),
+                    'vat118' => $this->t('VAT formula 18/118'),
+                    'vat110' => $this->t('VAT formula 10/110'),
+                    'vat0' => $this->t('VAT 0%'),
+                    'no_vat' => $this->t('No VAT'),
+                ),
+                '#default_value' => $this->configuration['vat_product_' . $type],
+                '#required' => TRUE,
+            ];
+        }
 
-        $form['vat_product'] = [
-            '#type' => 'select',
-            '#title' => $this->t("Vat rate for products"),
-            '#description' => $this->t("Set vat rate for products"),
-            '#options' => array(
-                'vat18' => $this->t('VAT 18%'),
-                'vat10' => $this->t('VAT 10%'),
-                'vat118' => $this->t('VAT formula 18/118'),
-                'vat110' => $this->t('VAT formula 10/110'),
-                'vat0' => $this->t('VAT 0%'),
-                'no_vat' => $this->t('No VAT'),
-            ),
-            '#default_value' => $this->configuration['vat_product'],
-            '#required' => TRUE,
-        ];
 
         $form['vat_shipping'] = [
             '#type' => 'select',
@@ -134,7 +141,7 @@ class Paymaster extends OffsitePaymentGatewayBase
     }
 
     /**
-     *
+     * Form submit
      * {@inheritdoc}
      */
     public function submitConfigurationForm(array &$form, FormStateInterface $form_state)
@@ -147,8 +154,11 @@ class Paymaster extends OffsitePaymentGatewayBase
             $this->configuration['merchant_id'] = $values['merchant_id'];
             $this->configuration['secret'] = $values['secret'];
             $this->configuration['hash_method'] = $values['hash_method'];
-            $this->configuration['decription'] = $values['description'];
-            $this->configuration['vat_product'] = $values['vat_product'];
+            $this->configuration['description'] = $values['description'];
+            foreach ($this->getProductTypes() as $type) {
+                $this->configuration['vat_product_'.$type] = $values['vat_product_'.$type];
+            }
+
             $this->configuration['vat_shipping'] = $values['vat_shipping'];
         }
     }
@@ -161,7 +171,7 @@ class Paymaster extends OffsitePaymentGatewayBase
     public function onNotify(Request $request)
     {
 
-        // try to get values
+        // try to get values from request
         $LMI_MERCHANT_ID = self::getRequest('LMI_MERCHANT_ID');
         $LMI_PAYMENT_NO = self::getRequest('LMI_PAYMENT_NO');
         $LMI_SYS_PAYMENT_ID = self::getRequest('LMI_SYS_PAYMENT_ID');
@@ -175,10 +185,9 @@ class Paymaster extends OffsitePaymentGatewayBase
         $SECRET = $this->configuration['secret'];
         $hash_method = $this->configuration['hash_method'];
 
+        // get hash and sign from request
         $LMI_HASH = self::getRequest('LMI_HASH');
         $LMI_SIGN = self::getRequest('SIGN');
-
-        $LMI_PAYMENT_NO = 1;
 
         // gert order
         if (!$LMI_PAYMENT_NO)
@@ -187,8 +196,6 @@ class Paymaster extends OffsitePaymentGatewayBase
         $order_total = self::getOrderTotalAmount($order->getTotalPrice());
         $order_currency = self::getOrderCurrencyCode($order->getTotalPrice());
 
-
-        print_r($order_currency, false);
 
         // Check callback for pre-request
         if (self::getRequest("LMI_PREREQUEST")) {
@@ -201,18 +208,31 @@ class Paymaster extends OffsitePaymentGatewayBase
             }
         }
 
+        // get hash and sign
         $hash = self::getHash($LMI_MERCHANT_ID, $LMI_PAYMENT_NO, $LMI_SYS_PAYMENT_ID, $LMI_SYS_PAYMENT_DATE,
             $LMI_PAYMENT_AMOUNT, $LMI_CURRENCY, $LMI_PAID_AMOUNT, $LMI_PAID_CURRENCY, $LMI_PAYMENT_SYSTEM,
             $LMI_SIM_MODE, $SECRET, $hash_method);
 
-        $sign = self::getSign($LMI_MERCHANT_ID, $LMI_PAYMENT_NO, $LMI_PAID_AMOUNT, $LMI_PAID_CURRENCY,
+        $sign = self::getSign($LMI_MERCHANT_ID, $LMI_PAYMENT_NO, $LMI_PAYMENT_AMOUNT, $LMI_CURRENCY,
             $SECRET, $hash_method);
 
+
+        // check for right hash and sign
         if ($hash === $LMI_HASH && $sign === $LMI_SIGN) {
+            $payment_storage = $this->entityTypeManager->getStorage('commerce_payment');
+            $payment = $payment_storage->create([
+                'state' => 'complete',
+                'amount' => $order->getTotalPrice(),
+                'payment_gateway' => $this->entityId,
+                'order_id' => $LMI_PAYMENT_NO,
+                'remote_id' => $LMI_SYS_PAYMENT_ID,
+                'remote_state' => 'complete'
+            ]);
+            $payment->save();
 
         } else {
-            echo 'FAIL';
-            exit;
+            MessengerInterface::addMessage($this->t('Invalid Transaction. Please try again'), 'error');
+            return $this->onCancel($order, $request);
         }
 
     }
@@ -325,6 +345,27 @@ class Paymaster extends OffsitePaymentGatewayBase
     public static function getOrderCurrencyCode(\Drupal\commerce_price\Price $price)
     {
         return $price->getCurrencyCode();
+    }
+
+
+    /**
+     * {@inheritdoc}
+     */
+    public function onCancel(OrderInterface $order, Request $request)
+    {
+        MessengerInterface::addMessage($this->t('You have canceled checkout at @gateway but may resume the checkout process here when you are ready.', [
+            '@gateway' => $this->getDisplayLabel(),
+        ]));
+    }
+
+
+    /**
+     * Get all product types
+     * @return array
+     */
+    public function getProductTypes() {
+        $product_types = \Drupal\commerce_product\Entity\ProductType::loadMultiple();
+        return array_keys($product_types);
     }
 
 
