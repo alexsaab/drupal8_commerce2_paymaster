@@ -41,7 +41,7 @@ class Paymaster extends OffsitePaymentGatewayBase
             ] + parent::defaultConfiguration();
 
         foreach ($this->getProductTypes() as $type) {
-            $returned['vat_product_'.$type] = '';
+            $returned['vat_product_' . $type] = '';
         }
 
         return $returned;
@@ -156,7 +156,7 @@ class Paymaster extends OffsitePaymentGatewayBase
             $this->configuration['hash_method'] = $values['hash_method'];
             $this->configuration['description'] = $values['description'];
             foreach ($this->getProductTypes() as $type) {
-                $this->configuration['vat_product_'.$type] = $values['vat_product_'.$type];
+                $this->configuration['vat_product_' . $type] = $values['vat_product_' . $type];
             }
 
             $this->configuration['vat_shipping'] = $values['vat_shipping'];
@@ -199,7 +199,8 @@ class Paymaster extends OffsitePaymentGatewayBase
 
         // Check callback for pre-request
         if (self::getRequest("LMI_PREREQUEST")) {
-            if (($LMI_MERCHANT_ID == $this->configuration['merchant_id']) && ($LMI_PAYMENT_AMOUNT == $order_total) && ($LMI_PAID_CURRENCY == $order_currency)) {
+            if (($LMI_MERCHANT_ID == $this->configuration['merchant_id']) &&
+                ($LMI_PAYMENT_AMOUNT == $order_total) && ($LMI_PAID_CURRENCY == $order_currency)) {
                 echo 'YES';
                 exit;
             } else {
@@ -362,9 +363,69 @@ class Paymaster extends OffsitePaymentGatewayBase
      * Get all product types
      * @return array
      */
-    public function getProductTypes() {
+    public function getProductTypes()
+    {
         $product_types = \Drupal\commerce_product\Entity\ProductType::loadMultiple();
         return array_keys($product_types);
+    }
+
+
+    /**
+     * Get order product items
+     * @param $order
+     * @param $config array
+     * @return array
+     */
+    public static function getOrderItems($order, $config)
+    {
+        $itemsArray = [];
+
+        foreach ($order->getItems() as $key => $item) {
+            $type = $item->getPurchasedEntity()->getProduct()->get('type')->getString();
+            $name = $item->getTitle();
+            $price = number_format($item->getUnitPrice()->getNumber(), 2, '.', '');
+            $qty = number_format($item->getQuantity(), 0, '.', '');
+            if (!($vat = $config['vat_product_' . $type])) {
+                $vat = 'no_vat';
+            }
+            $itemsArray[] = [
+                'NAME' => $name,
+                'QTY' => $qty,
+                'PRICE' => $price,
+                'TAX' => $vat,
+            ];
+        }
+        return $itemsArray;
+    }
+
+
+    /**
+     * Get order Adjastment (Shipping, fee and etc.)
+     * @param $order
+     * @param $config array
+     * @return array
+     */
+    public static function getOrderAdjustments($order, $config)
+    {
+        $itemsArray = [];
+        foreach ($order->getAdjustments() as $adjustment) {
+            if ($adjustment->getType() == 'shipping') {
+                $itemsArray[] = [
+                    'NAME' => $adjustment->getLabel(),
+                    'QTY' => 1,
+                    'PRICE' => number_format($adjustment->getAmount()->getNumber(), 2, '.', ''),
+                    'TAX' => $config['vat_shipping'],
+                ];
+            } else {
+                $itemsArray[] = [
+                    'NAME' => $adjustment->getLabel(),
+                    'QTY' => 1,
+                    'PRICE' => number_format($adjustment->getAmount()->getNumber(), 2, '.', ''),
+                    'TAX' => 'no_vat',
+                ];
+            }
+        }
+        return $itemsArray;
     }
 
 
