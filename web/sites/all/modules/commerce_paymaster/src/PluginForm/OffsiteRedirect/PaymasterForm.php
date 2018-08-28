@@ -5,7 +5,6 @@ namespace Drupal\commerce_paymaster\PluginForm\OffsiteRedirect;
 use Drupal\commerce_payment\PluginForm\PaymentOffsiteForm as BasePaymentOffsiteForm;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\commerce_paymaster\Plugin\Commerce\PaymentGateway\Paymaster as PM;
-use Drupal\Core\Url;
 
 
 /**
